@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from loguru import logger
+from datetime import datetime
+from time import time
 
 from classifier import NewsCategoryClassifier
 
@@ -22,7 +24,6 @@ LOGS_OUTPUT_PATH = "../data/logs.out"
 
 app = FastAPI()
 
-
 @app.on_event("startup")
 def startup_event():
     """
@@ -34,6 +35,12 @@ def startup_event():
     Access to the model instance and log file will be needed in /predict endpoint, make sure you
     store them as global variables
     """
+    global news_clf, logs
+
+    news_clf = NewsCategoryClassifier()
+    news_clf.load(MODEL_PATH)
+
+    logs = open(LOGS_OUTPUT_PATH, 'a+')
     logger.info("Setup completed")
 
 
@@ -42,9 +49,10 @@ def shutdown_event():
     # clean up
     """
     [TO BE IMPLEMENTED]
-    1. Make sure to flush the log file and close any file pointers to avoid corruption
     2. Any other cleanups
     """
+    logs.flush()
+    logs.close()
     logger.info("Shutting down application")
 
 
@@ -65,7 +73,23 @@ def predict(request: PredictRequest):
     }
     3. Construct an instance of `PredictResponse` and return
     """
-    response = PredictResponse(scores={"label1": 0.9, "label2": 0.1}, label="label1")
+    start_time = time()
+
+    predicted_label = news_clf.predict_label(request)[0]
+    prediction_scores = news_clf.predict_proba(request)
+
+    request_output = {
+        'timestamp': datetime.fromtimestamp(start_time).strftime('%Y/%m/%d %H:%M:%S'),
+        'request': request,
+        'prediction': prediction_scores,
+        'latency': (time() - start_time) * 1000 # time in milliseconds
+    }
+
+    logs.write(str(request_output))
+    logs.write('\n')
+    logs.flush()
+
+    response = PredictResponse(scores=prediction_scores, label=predicted_label)
     return response
 
 
